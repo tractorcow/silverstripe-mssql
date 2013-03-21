@@ -59,19 +59,6 @@ class MSSQLDatabase extends SS_Database {
 	protected $database;
 
 	/**
-	 * If true, use the mssql_... functions.
-	 * If false use the sqlsrv_... functions
-	 */
-	protected $mssql = null;
-
-	/**
-	 * Stores the affected rows of the last query.
-	 * Used by sqlsrv functions only, as sqlsrv_rows_affected
-	 * accepts a result instead of a database handle.
-	 */
-	protected $lastAffectedRows;
-
-	/**
 	 * Words that will trigger an error if passed to a SQL Server fulltext search
 	 */
 	public static $noiseWords = array('about', '1', 'after', '2', 'all', 'also', '3', 'an', '4', 'and', '5', 'another', '6', 'any', '7', 'are', '8', 'as', '9', 'at', '0', 'be', '$', 'because', 'been', 'before', 'being', 'between', 'both', 'but', 'by', 'came', 'can', 'come', 'could', 'did', 'do', 'does', 'each', 'else', 'for', 'from', 'get', 'got', 'has', 'had', 'he', 'have', 'her', 'here', 'him', 'himself', 'his', 'how', 'if', 'in', 'into', 'is', 'it', 'its', 'just', 'like', 'make', 'many', 'me', 'might', 'more', 'most', 'much', 'must', 'my', 'never', 'no', 'now', 'of', 'on', 'only', 'or', 'other', 'our', 'out', 'over', 're', 'said', 'same', 'see', 'should', 'since', 'so', 'some', 'still', 'such', 'take', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too', 'under', 'up', 'use', 'very', 'want', 'was', 'way', 'we', 'well', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'will', 'with', 'would', 'you', 'your', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z');
@@ -120,58 +107,15 @@ class MSSQLDatabase extends SS_Database {
 	 *  - username: The username to log on with
 	 *  - password: The password to log on with
 	 *  - database: The database to connect to
+	 *  - windowsauthentication: Set to true to use windows authentication 
+	 *    instead of username/password
 	 */
-	public function __construct($parameters) {
-		if(function_exists('mssql_connect')) {
-			$this->mssql = true;
-		} else if(function_exists('sqlsrv_connect')) {
-			$this->mssql = false;
-		} else {
-			user_error("Neither the mssql_connect() nor the sqlsrv_connect() functions are available.  Please install the PHP native mssql module, or the Microsoft-provided sqlsrv module.", E_USER_ERROR);
-		}
+	public function connect($parameters) {
+		parent::connect($parameters);
 
-		if($this->mssql) {
-			// Switch to utf8 connection charset
-			ini_set('mssql.charset', 'utf8');
-			$this->dbConn = mssql_connect($parameters['server'], $parameters['username'], $parameters['password'], true);
-		} else {
-			// Disable default warnings as errors behaviour for sqlsrv to keep it in line with mssql functions
-			if(ini_get('sqlsrv.WarningsReturnAsErrors')) {
-				ini_set('sqlsrv.WarningsReturnAsErrors', 'Off');
-			}
-
-			$options = array(
-				'CharacterSet' => 'UTF-8',
-				'MultipleActiveResultSets' => true
-			);
-			if(!(defined('MSSQL_USE_WINDOWS_AUTHENTICATION') && MSSQL_USE_WINDOWS_AUTHENTICATION == true)) {
-				$options['UID'] = $parameters['username'];
-				$options['PWD'] = $parameters['password'];
-			}
-
-			$this->dbConn = sqlsrv_connect($parameters['server'], $options);
-		}
-
-		if(!$this->dbConn) {
-			$this->databaseError('Couldn\'t connect to SQL Server database');
-		} else {
-			$this->database = $parameters['database'];
-			$this->selectDatabase($this->database);
-
-			// Configure the connection
-			$this->query('SET QUOTED_IDENTIFIER ON');
-			$this->query('SET TEXTSIZE 2147483647');
-		}
-	}
-
-	public function __destruct() {
-		if(is_resource($this->dbConn)) {
-			if($this->mssql) {
-				mssql_close($this->dbConn);
-			} else {
-				sqlsrv_close($this->dbConn);
-			}
-		}
+		// Configure the connection
+		$this->query('SET QUOTED_IDENTIFIER ON');
+		$this->query('SET TEXTSIZE 2147483647');
 	}
 
 	/**
@@ -295,33 +239,6 @@ class MSSQLDatabase extends SS_Database {
 	 */
 	public function getDatabaseServer() {
 		return "mssql";
-	}
-
-	public function query($sql, $errorLevel = E_USER_ERROR) {
-		if(isset($_REQUEST['previewwrite']) && in_array(strtolower(substr($sql,0,strpos($sql,' '))), array('insert','update','delete','replace'))) {
-			Debug::message("Will execute: $sql");
-			return;
-		}
-
-		if(isset($_REQUEST['showqueries'])) {
-			$starttime = microtime(true);
-		}
-
-		$error = '';
-		if($this->mssql) {
-			$handle = mssql_query($sql, $this->dbConn);
-		} else {
-			$handle = sqlsrv_query($this->dbConn, $sql);
-			if($handle) $this->lastAffectedRows = sqlsrv_rows_affected($handle);
-		}
-
-		if(isset($_REQUEST['showqueries'])) {
-			$endtime = round(microtime(true) - $starttime,4);
-			Debug::message("\n$sql\n{$endtime}ms\n", false);
-		}
-
-		if(!$handle && $errorLevel) $this->databaseError("Couldn't run query: $sql", $errorLevel);
-		return new MSSQLQuery($this, $handle, $this->mssql);
 	}
 
 	public function getGeneratedID($table) {
@@ -1577,11 +1494,10 @@ class MSSQLDatabase extends SS_Database {
 	 * Commit everything inside this transaction so far
 	 */
 	public function transactionEnd(){
-		if($this->mssql) {
-			DB::query('COMMIT TRANSACTION');
+		if($this->connector instanceof SQLServerConnector) {
+			$this->connector->transactionEnd();
 		} else {
-			$result = sqlsrv_commit($this->dbConn);
-			if (!$result) $this->databaseError("Couldn't commit the transaction.", E_USER_ERROR);
+			$this->query('COMMIT TRANSACTION');
 		}
 	}
 
@@ -1765,131 +1681,4 @@ class MSSQLDatabase extends SS_Database {
 
 		return "DATEDIFF(s, $date2, $date1)";
 	}
-}
-
-/**
- * A result-set from a MSSQL database.
- * @package sapphire
- * @subpackage model
- */
-class MSSQLQuery extends SS_Query {
-
-	/**
-	 * The MSSQLDatabase object that created this result set.
-	 * @var MSSQLDatabase
-	 */
-	private $database;
-
-	/**
-	 * The internal MSSQL handle that points to the result set.
-	 * @var resource
-	 */
-	private $handle;
-
-	/**
-	 * If true, use the mssql_... functions.
-	 * If false use the sqlsrv_... functions
-	 */
-	private $mssql = null;
-
-	/**
-	 * A list of field meta-data, such as column name and data type.
-	 * @var array
-	 */
-	private $fields = array();
-
-	/**
-	 * Hook the result-set given into a Query class, suitable for use by sapphire.
-	 * @param database The database object that created this query.
-	 * @param handle the internal mssql handle that is points to the resultset.
-	 */
-	public function __construct(MSSQLDatabase $database, $handle, $mssql) {
-		$this->database = $database;
-		$this->handle = $handle;
-		$this->mssql = $mssql;
-
-		// build a list of field meta-data for this query we'll use in nextRecord()
-		// doing it here once saves us from calling mssql_fetch_field() in nextRecord()
-		// potentially hundreds of times, which is unnecessary.
-		if($this->mssql && is_resource($this->handle)) {
-			for($i = 0; $i < mssql_num_fields($handle); $i++) {
-				$this->fields[$i] = mssql_fetch_field($handle, $i);
-			}
-		}
-	}
-
-	public function __destruct() {
-		if(is_resource($this->handle)) {
-			if($this->mssql) {
-				mssql_free_result($this->handle);
-			} else {
-				sqlsrv_free_stmt($this->handle);
-			}
-		}
-	}
-
-	public function seek($row) {
-		if(!is_resource($this->handle)) return false;
-
-		if($this->mssql) {
-			return mssql_data_seek($this->handle, $row);
-		} else {
-			user_error('MSSQLQuery::seek() not supported in sqlsrv', E_USER_WARNING);
-		}
-	}
-
-	public function numRecords() {
-		if(!is_resource($this->handle)) return false;
-
-		if($this->mssql) {
-			return mssql_num_rows($this->handle);
-		} else {
-			// WARNING: This will only work if the cursor type is scrollable!
-			if(function_exists('sqlsrv_num_rows')) {
-				return sqlsrv_num_rows($this->handle);
-			} else {
-				user_error('MSSQLQuery::numRecords() not supported in this version of sqlsrv', E_USER_WARNING);
-			}
-		}
-	}
-
-	public function nextRecord() {
-		if(!is_resource($this->handle)) return false;
-
-		if($this->mssql) {
-			if($row = mssql_fetch_row($this->handle)) {
-				foreach($row as $i => $value) {
-					$field = $this->fields[$i];
-
-					// fix datetime formatting from format "Jan  1 2012 12:00:00:000AM" to "2012-01-01 12:00:00"
-					// strtotime doesn't understand this format, so we need to do some modification of the value first
-					if($field->type == 'datetime' && $value) {
-						$value = date('Y-m-d H:i:s', strtotime(preg_replace('/:[0-9][0-9][0-9]([ap]m)$/i', ' \\1', $value)));
-					}
-
-					if(isset($value) || !isset($data[$field->name])) {
-						$data[$field->name] = $value;
-					}
-				}
-				return $data;
-			}
-		} else {
-			if($data = sqlsrv_fetch_array($this->handle, SQLSRV_FETCH_ASSOC)) {
-
-				// special case for sqlsrv - date values are DateTime coming out of the sqlsrv drivers,
-				// so we convert to the usual Y-m-d H:i:s value!
-				foreach($data as $name => $value) {
-					if($value instanceof DateTime) $data[$name] = $value->format('Y-m-d H:i:s');
-				}
-				return $data;
-			} else {
-				// Free the handle if there are no more results - sqlsrv crashes if there are too many handles
-				sqlsrv_free_stmt($this->handle);
-				$this->handle = null;
-			}
-		}
-
-		return false;
-	}
-
 }
