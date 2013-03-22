@@ -6,7 +6,7 @@
  * @package framework
  * @subpackage model
  */
-class SQLServerConnector extends DBConnector {
+class SQLServerConnector extends MSDBConnector {
 	
 	/**
 	 * Connection to the DBMS.
@@ -24,16 +24,20 @@ class SQLServerConnector extends DBConnector {
 	 */
 	protected $lastAffectedRows;
 
-	public function connect($parameters) {
+	public function connect($parameters, $selectDB = false) {
 
 		// Disable default warnings as errors behaviour for sqlsrv to keep it in line with mssql functions
 		if(ini_get('sqlsrv.WarningsReturnAsErrors')) {
 			ini_set('sqlsrv.WarningsReturnAsErrors', 'Off');
 		}
 
+		$charset = isset($parameters['charset']) ? $parameters : 'UTF-8';
+		$multiResultSets = isset($parameters['multipleactiveresultsets'])
+				? $parameters['multipleactiveresultsets']
+				: true;
 		$options = array(
-			'CharacterSet' => 'UTF-8',
-			'MultipleActiveResultSets' => true
+			'CharacterSet' => $charset,
+			'MultipleActiveResultSets' => $multiResultSets
 		);
 		
 		if( !(defined('MSSQL_USE_WINDOWS_AUTHENTICATION') && MSSQL_USE_WINDOWS_AUTHENTICATION == true)
@@ -42,47 +46,73 @@ class SQLServerConnector extends DBConnector {
 			$options['UID'] = $parameters['username'];
 			$options['PWD'] = $parameters['password'];
 		}
+		
+		// Required by MS Azure database
+		if($selectDB && !empty($parameters['database'])) {
+			$options['Database'] = $parameters['database'];
+		}
 
 		$this->dbConn = sqlsrv_connect($parameters['server'], $options);
 		
 		if(empty($this->dbConn)) {
 			$this->databaseError("Couldn't connect to SQL Server database");
+		} elseif($selectDB && !empty($parameters['database'])) {
+			// Check selected database (Azure)
+			$this->selectedDatabase = $parameters['database'];
 		}
 	}
 	
+	/**
+	 * Start transaction. READ ONLY not supported.
+	 */
+	public function transactionStart(){
+		$result = sqlsrv_begin_transaction($this->dbConn);
+		if (!$result) {
+			$this->databaseError("Couldn't start the transaction.", E_USER_ERROR);
+		}
+	}
+	
+	/**
+	 * Commit everything inside this transaction so far
+	 */
 	public function transactionEnd() {
 		$result = sqlsrv_commit($this->dbConn);
 		if (!$result) {
 			$this->databaseError("Couldn't commit the transaction.", E_USER_ERROR);
 		}
 	}
+	
+	/**
+	 * Rollback or revert to a savepoint if your queries encounter problems
+	 * If you encounter a problem at any point during a transaction, you may
+	 * need to rollback that particular query, or return to a savepoint
+	 */
+	public function transactionRollback(){
+		$result = sqlsrv_rollback($this->dbConn);
+		if (!$result) {
+			$this->databaseError("Couldn't rollback the transaction.", E_USER_ERROR);
+		}
+	}
 
 	public function affectedRows() {
-		
+		return $this->lastAffectedRows;
 	}
-
-	public function escapeString($value) {
-		
-	}
-
-	public function getGeneratedID($table) {
-		
-	}
-
+	
 	public function getLastError() {
-		
+		$errorMessages = array();
+		$errors = sqlsrv_errors();
+		if($errors) foreach($errors as $info) {
+			$errorMessages[] = implode(', ', array($info['SQLSTATE'], $info['code'], $info['message']));
+		}
+		return implode('; ', $errorMessages);
 	}
 
 	public function getSelectedDatabase() {
 		
 	}
 
-	public function getVersion() {
-		
-	}
-
 	public function isActive() {
-		
+		return $this->dbConn && $this->selectedDatabase;
 	}
 
 	public function preparedQuery($sql, $parameters, $errorLevel = E_USER_ERROR) {
@@ -116,11 +146,9 @@ class SQLServerConnector extends DBConnector {
 	}
 
 	public function selectDatabase($name) {
-		
-	}
-
-	public function unloadDatabase() {
-		
+		$this->query("USE \"$name\"");
+		$this->selectedDatabase = $name;
+		return true;
 	}
 
 	public function __destruct() {

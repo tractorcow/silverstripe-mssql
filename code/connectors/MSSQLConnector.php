@@ -6,7 +6,7 @@
  * @package framework
  * @subpackage model
  */
-class MSSQLConnector extends DBConnector {
+class MSSQLConnector extends MSDBConnector {
 	
 	/**
 	 * Connection to the DBMS.
@@ -15,7 +15,10 @@ class MSSQLConnector extends DBConnector {
 	 */
 	protected $dbConn = null;
 
-	public function connect($parameters) {
+	public function connect($parameters, $selectDB = false) {
+		
+		// Rudely ignore $selectDB
+		
 		// Switch to utf8 connection charset
 		ini_set('mssql.charset', 'utf8');
 		$this->dbConn = mssql_connect($parameters['server'], $parameters['username'], $parameters['password'], true);
@@ -26,31 +29,15 @@ class MSSQLConnector extends DBConnector {
 	}
 	
 	public function affectedRows() {
-		
+		return mssql_rows_affected($this->dbConn);
 	}
-
-	public function escapeString($value) {
-		
-	}
-
-	public function getGeneratedID($table) {
-		
-	}
-
+	
 	public function getLastError() {
-		
-	}
-
-	public function getSelectedDatabase() {
-		
-	}
-
-	public function getVersion() {
-		
+		return mssql_get_last_message();
 	}
 
 	public function isActive() {
-		
+		return $this->dbConn && $this->selectedDatabase;
 	}
 
 	public function preparedQuery($sql, $parameters, $errorLevel = E_USER_ERROR) {
@@ -81,11 +68,9 @@ class MSSQLConnector extends DBConnector {
 	}
 
 	public function selectDatabase($name) {
-		
-	}
-
-	public function unloadDatabase() {
-		
+		$success = mssql_select_db($name, $this->dbConn);
+		if($success) $this->selectedDatabase = $name;
+		return $success;
 	}
 
 	public function __destruct() {
