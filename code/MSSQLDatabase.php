@@ -427,15 +427,15 @@ class MSSQLDatabase extends SS_Database {
 		// change used collation for case sensitive searches.
 		$collateClause = '';
 		if($caseSensitive === true) {
-			if(self::$collation) {
-				$collation = preg_replace('/_CI_/', '_CS_', self::$collation);
+			if(self::get_collation()) {
+				$collation = preg_replace('/_CI_/', '_CS_', self::get_collation());
 			} else {
 				$collation = 'Latin1_General_CS_AS';
 			}
 			$collateClause = ' COLLATE ' . $collation;
 		} elseif($caseSensitive === false) {
-			if(self::$collation) {
-				$collation = preg_replace('/_CS_/', '_CI_', self::$collation);
+			if(self::get_collation()) {
+				$collation = preg_replace('/_CS_/', '_CI_', self::get_collation());
 			} else {
 				$collation = 'Latin1_General_CI_AS';
 			}
