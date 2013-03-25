@@ -8,25 +8,18 @@ Injector:
     properties:
       connector: %$PDOConnector
       schemaManager: %$MSSQLSchemaManager
-      queryBuilder: %$DBQueryBuilder
-# Uses mssql_connect
-  MSSQLDatabase:
-    class: 'MSSQLDatabase'
-    properties:
-      connector: %$MSSQLConnector
-      schemaManager: %$MSSQLSchemaManager
-      queryBuilder: %$DBQueryBuilder
+      queryBuilder: %$MSSQLQueryBuilder
 # Uses sqlsrv_connect
-  SQLServerDatabase:
+  MSSQLDatabase:
     class: 'MSSQLDatabase'
     properties:
       connector: %$SQLServerConnector
       schemaManager: %$MSSQLSchemaManager
-      queryBuilder: %$DBQueryBuilder
+      queryBuilder: %$MSSQLQueryBuilder
 # Uses sqlsrv_connect to connect to a MS Azure Database
   MSSQLAzureDatabase:
     class: 'MSSQLAzureDatabase'
     properties:
       connector: %$SQLServerConnector
       schemaManager: %$MSSQLSchemaManager
-      queryBuilder: %$DBQueryBuilder
+      queryBuilder: %$MSSQLQueryBuilder

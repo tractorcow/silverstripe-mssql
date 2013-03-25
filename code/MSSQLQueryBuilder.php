@@ -1,14 +1,17 @@
 <?php
 
-
+/**
+ * Builds a SQL query string from a SQLExpression object
+ * 
+ * @package mssql
+ */
 class MSSQLQueryBuilder extends DBQueryBuilder {
 	
 	protected function buildSelectQuery(SQLSelect $query, array &$parameters) {
-		list($offset, $limit) = $this->parseLimit($query);
+		list($limit, $offset) = $this->parseLimit($query);
 		
 		// If not using ofset then query generation is quite straightforward
-		// note that an offset function relies on a limit being supplied too
-		if(empty($offset) || empty($limit)) {
+		if(empty($offset)) {
 			$sql = parent::buildSelectQuery($query, $parameters);
 			// Inject limit into SELECT fragment
 			if(!empty($limit)) {
@@ -31,6 +34,7 @@ class MSSQLQueryBuilder extends DBQueryBuilder {
 			}
 		}
 
+		// Create order expression, using the first column if none explicitly specified
 		if($orderby) {
 			$orderByClause = parent::buildOrderByFragment($query, $parameters);
 		} else {
@@ -46,9 +50,20 @@ class MSSQLQueryBuilder extends DBQueryBuilder {
 		$sql = preg_replace('/^(SELECT (DISTINCT)?)/i', '${1} ROW_NUMBER() OVER ('.$orderByClause.') AS Number, ', $sql);
 		
 		// Sub-query this SQL
-		$beginNumber = ($offset+1);
-		$endNumber = ($offset+$limit);
-		return "SELECT * FROM ($sql) AS Numbered WHERE Number BETWEEN $beginNumber AND $endNumber ORDER BY Number";
+		if(empty($limit)) {
+			$limitCondition = "Number > ?";
+			$parameters[] = $offset;
+		} else {
+			$limitCondition = "Number BETWEEN ? AND ?";
+			$parameters[] = $offset + 1;
+			$parameters[] = $offset + $limit;
+		}	
+		return "SELECT * FROM ($sql) AS Numbered WHERE $limitCondition ORDER BY Number";
+	}
+	
+	public function buildLimitFragment(SQLSelect $query, array &$parameters) {
+		// Limit is handled at the buildSelectQuery level
+		return '';
 	}
 	
 	public function buildOrderByFragment(SQLSelect $query, array &$parameters) {
@@ -59,8 +74,6 @@ class MSSQLQueryBuilder extends DBQueryBuilder {
 		}
 		return '';
 	}
-	
-	
 	
 	/**
 	 * Extracts the limit and offset from the limit clause

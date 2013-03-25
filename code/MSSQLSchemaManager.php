@@ -1,11 +1,9 @@
 <?php
 
-
 /**
  * Represents and handles all schema management for a MS SQL database
  * 
- * @package framework
- * @subpackage model
+ * @package mssql
  */
 class MSSQLSchemaManager extends DBSchemaManager {
 
@@ -66,7 +64,7 @@ class MSSQLSchemaManager extends DBSchemaManager {
 	 * @param int $maxWaitingTime Time in seconds to wait for the database.
 	 */
 	function waitUntilIndexingFinished($maxWaitingTime = 15) {
-		if(!$this->fullTextEnabled()) return;
+		if(!$this->database->fullTextEnabled()) return;
 		
 		$this->query("EXEC sp_fulltext_catalog 'ftCatalog', 'Rebuild';");
 
@@ -81,6 +79,24 @@ class MSSQLSchemaManager extends DBSchemaManager {
 			}
 			sleep(1);
 		}
+	}
+
+	/**
+	 * Check if a fulltext index exists on a particular table name.
+	 * 
+	 * @param string $tableName
+	 * @return boolean TRUE index exists | FALSE index does not exist | NULL no support
+	 */
+	function fulltextIndexExists($tableName) {
+		// Special case for no full text index support
+		if(!$this->database->fullTextEnabled()) return null;
+
+		return (bool) $this->preparedQuery("
+			SELECT 1 FROM sys.fulltext_indexes i
+			JOIN sys.objects o ON i.object_id = o.object_id
+			WHERE o.name = ?",
+			array($tableName)
+		)->value();
 	}
 
 	/**
@@ -132,7 +148,7 @@ class MSSQLSchemaManager extends DBSchemaManager {
 	}
 
 	public function databaseExists($name) {
-		$databases = $this->allDatabaseNames();
+		$databases = $this->databaseList();
 		foreach($databases as $dbname) {
 			if($dbname == $name) return true;
 		}
@@ -525,7 +541,7 @@ class MSSQLSchemaManager extends DBSchemaManager {
 		$drop = "IF EXISTS (SELECT name FROM sys.indexes WHERE name = '$index') DROP INDEX $index ON \"$tableName\";";
 
 		// create a type-specific index
-		if($indexSpec['type'] == 'fulltext' && $this->fullTextEnabled()) {
+		if($indexSpec['type'] == 'fulltext' && $this->database->fullTextEnabled()) {
 			// enable fulltext on this table
 			$this->createFullTextCatalog();
 			$primary_key = $this->getPrimaryKey($tableName);
@@ -578,7 +594,7 @@ class MSSQLSchemaManager extends DBSchemaManager {
 		}
 
 		// Now we need to check to see if we have any fulltext indexes attached to this table:
-		if($this->fullTextEnabled()) {
+		if($this->database->fullTextEnabled()) {
 			$result = $this->query('EXEC sp_help_fulltext_columns;');
 
 			// Extract columns from this fulltext definition
@@ -732,8 +748,9 @@ class MSSQLSchemaManager extends DBSchemaManager {
 	 * @return string
 	 */
 	public function text($values) {
-		$collation = self::$collation ? " COLLATE " . self::$collation : "";
-		return "nvarchar(max)$collation null";
+		$collation = MSSQLDatabase::get_collation();
+		$collationSQL = $collation ? " COLLATE $collation" : "";
+		return "nvarchar(max)$collationSQL null";
 	}
 
 	/**
@@ -753,8 +770,9 @@ class MSSQLSchemaManager extends DBSchemaManager {
 	 * @return string
 	 */
 	public function varchar($values) {
-		$collation = self::$collation ? " COLLATE " . self::$collation : "";
-		return "nvarchar(" . $values['precision'] . ")$collation null";
+		$collation = MSSQLDatabase::get_collation();
+		$collationSQL = $collation ? " COLLATE $collation" : "";
+		return "nvarchar(" . $values['precision'] . ")$collationSQL null";
 	}
 
 	/**

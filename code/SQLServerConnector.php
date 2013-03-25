@@ -3,10 +3,9 @@
 /**
  * Database connector driver for sqlsrv_ library
  * 
- * @package framework
- * @subpackage model
+ * @package mssql
  */
-class SQLServerConnector extends MSDBConnector {
+class SQLServerConnector extends DBConnector {
 	
 	/**
 	 * Connection to the DBMS.
@@ -23,6 +22,13 @@ class SQLServerConnector extends MSDBConnector {
 	 * @var integer
 	 */
 	protected $lastAffectedRows;
+	
+	/**
+	 * Name of the currently selected database
+	 *
+	 * @var string
+	 */
+	protected $selectedDatabase = null;
 
 	public function connect($parameters, $selectDB = false) {
 
@@ -107,27 +113,44 @@ class SQLServerConnector extends MSDBConnector {
 		return implode('; ', $errorMessages);
 	}
 
-	public function getSelectedDatabase() {
-		
-	}
-
 	public function isActive() {
 		return $this->dbConn && $this->selectedDatabase;
 	}
-
-	public function preparedQuery($sql, $parameters, $errorLevel = E_USER_ERROR) {
-		
+	
+	/**
+	 * Extract parameters in a format suitable for sqlsrv_query
+	 * 
+	 * @param array $parameters List of parameters
+	 * @return array List of parameters appropriate for sqlsrv_query function
+	 */
+	public function parsePreparedParameters($parameters) {
+		$values = array();
+		foreach($parameters as $value) {
+            if(is_array($value)) {
+                // Ignore the type modifier for cast parameter types
+                $values[] = $value['value'];
+            } else {
+                $values[] = $value;
+            }
+		}
+		return $values;
 	}
 
-	public function query($sql, $errorLevel = E_USER_ERROR) {
+	public function preparedQuery($sql, $parameters, $errorLevel = E_USER_ERROR) {
 
 		// Check if we should only preview this query
 		if ($this->previewWrite($sql)) return;
 		
+		$parsedParameters = $this->parsePreparedParameters($parameters);
+		
 		// Benchmark query
 		$dbConn = $this->dbConn;
-		$handle = $this->benchmarkQuery($sql, function($sql) use($dbConn) {
-			return sqlsrv_query($dbConn, $sql);
+		$handle = $this->benchmarkQuery($sql, function($sql) use($dbConn, $parsedParameters) {
+			if(empty($parsedParameters)) {
+				return sqlsrv_query($dbConn, $sql);
+			} else {
+				return sqlsrv_query($dbConn, $sql, $parsedParameters);
+			}
 		});
 		
 		if($handle) {
@@ -141,8 +164,8 @@ class SQLServerConnector extends MSDBConnector {
 		return new SQLServerQuery($this, $handle);
 	}
 
-	public function quoteString($value) {
-		
+	public function query($sql, $errorLevel = E_USER_ERROR) {
+		return $this->preparedQuery($sql, array(), $errorLevel);
 	}
 
 	public function selectDatabase($name) {
@@ -155,5 +178,49 @@ class SQLServerConnector extends MSDBConnector {
 		if(is_resource($this->dbConn)) {
 			sqlsrv_close($this->dbConn);
 		}
+	}
+
+	function databaseError($message, $errorLevel = E_USER_ERROR) {
+		
+		// Append last error onto the error stack
+		$lastError = $this->getLastError();
+		if($lastError) $message .= "\nLast error: " . $lastError;
+		
+		// Throw error
+		return parent::databaseError($message, $errorLevel);
+	}
+
+	public function getVersion() {
+		// @todo - use sqlsrv_server_info?
+		return trim($this->query("SELECT CONVERT(char(15), SERVERPROPERTY('ProductVersion'))")->value());
+	}
+
+	public function getGeneratedID($table) {
+		return $this->query("SELECT IDENT_CURRENT('$table')")->value();
+	}
+
+	public function getSelectedDatabase() {
+		return $this->selectedDatabase;
+	}
+
+	public function unloadDatabase() {
+		$this->selectedDatabase = null;
+	}
+	
+	/**
+	 * Quotes a string, including the "N" prefix so unicode
+	 * strings are saved to the database correctly.
+	 *
+	 * @param string $string String to be encoded
+	 * @return string Processed string ready for DB
+	 */
+	public function quoteString($value) {
+		return "N'" . $this->escapeString($value) . "'";
+	}	
+	
+	public function escapeString($value) {
+    	$value = str_replace("'", "''", $value);
+    	$value = str_replace("\0", "[NULL]", $value);
+    	return $value;
 	}
 }

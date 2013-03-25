@@ -305,24 +305,6 @@ class MSSQLDatabase extends SS_Database {
 	}
 
 	/**
-	 * Check if a fulltext index exists on a particular table name.
-	 * 
-	 * @param string $tableName
-	 * @return boolean TRUE index exists | FALSE index does not exist | NULL no support
-	 */
-	function fulltextIndexExists($tableName) {
-		// Special case for no full text index support
-		if(!$this->fullTextEnabled()) return null;
-
-		return (bool) $this->preparedQuery("
-			SELECT 1 FROM sys.fulltext_indexes i
-			JOIN sys.objects o ON i.object_id = o.object_id
-			WHERE o.name = ?",
-			array($tableName)
-		)->value();
-	}
-
-	/**
 	 * Returns a SQL fragment for querying a fulltext search index
 	 *
 	 * @param $tableName specific - table name

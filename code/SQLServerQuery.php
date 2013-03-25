@@ -3,8 +3,7 @@
 /**
  * A result-set from a MSSQL database.
  * 
- * @package sapphire
- * @subpackage model
+ * @package mssql
  */
 class SQLServerQuery extends SS_Query {
 
