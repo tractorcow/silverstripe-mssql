@@ -189,7 +189,7 @@ class MSSQLDatabase extends SS_Database {
 
 		$allClassesToSearch = array();
 		foreach ($classesToSearch as $class) {
-			$allClassesToSearch = array_merge($allClassesToSearch, ClassInfo::dataClassesFor($class));
+			$allClassesToSearch = array_merge($allClassesToSearch, array_values(ClassInfo::dataClassesFor($class)));
 		}
 		$allClassesToSearch = array_unique($allClassesToSearch);
 
