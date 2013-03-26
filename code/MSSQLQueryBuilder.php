@@ -36,7 +36,12 @@ class MSSQLQueryBuilder extends DBQueryBuilder {
 
 		// Create order expression, using the first column if none explicitly specified
 		if($orderby) {
-			$orderByClause = parent::buildOrderByFragment($query, $parameters);
+			// Simple implementation of buildOrderByFragment
+			$statements = array();
+			foreach ($orderby as $clause => $dir) {
+				$statements[] = trim("$clause $dir");
+			}
+			$orderByClause = "ORDER BY " . implode(', ', $statements);
 		} else {
 			$selects = $query->getSelect();
 			$firstCol = reset($selects);
