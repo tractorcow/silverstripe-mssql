@@ -158,7 +158,8 @@ class SQLServerConnector extends DBConnector {
 		} elseif(!$errorLevel) {
 			return null;
 		} else {
-			$this->databaseError("Couldn't run query: $sql", $errorLevel);
+			$parametersError = empty($parsedParameters) ? 'with no parameters' : "with parameters " . join(", ", $parsedParameters);
+			$this->databaseError("Couldn't run query: $sql $parametersError", $errorLevel);
 		}
 		
 		return new SQLServerQuery($this, $handle);
@@ -204,6 +205,7 @@ class SQLServerConnector extends DBConnector {
 	}
 
 	public function unloadDatabase() {
+		$this->selectDatabase('Master');
 		$this->selectedDatabase = null;
 	}
 	
