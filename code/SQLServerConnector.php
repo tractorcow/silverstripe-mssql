@@ -185,7 +185,7 @@ class SQLServerConnector extends DBConnector {
 		
 		// Append last error onto the error stack
 		$lastError = $this->getLastError();
-		if($lastError) $message .= "\nLast error: " . $lastError;
+		if($lastError) $message .= " | $lastError";
 		
 		// Throw error
 		return parent::databaseError($message, $errorLevel);
