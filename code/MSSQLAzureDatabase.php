@@ -42,8 +42,7 @@ class MSSQLAzureDatabase extends MSSQLDatabase {
 	 *  - username: The username to log on with
 	 *  - password: The password to log on with
 	 *  - database: The database to connect to
-	 *  - windowsauthentication: Set to true to use windows authentication 
-	 *    instead of username/password
+	 *  - windowsauthentication: Not supported for Azure
 	 */
 	protected function connect($parameters) {
 		$this->parameters = $parameters;

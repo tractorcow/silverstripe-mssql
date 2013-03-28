@@ -144,7 +144,7 @@ class MSSQLDatabase extends SS_Database {
 	}
 
 	public function getDatabaseServer() {
-		return "mssql";
+		return "sqlsrv";
 	}
 	
 	public function selectDatabase($name, $create = false, $errorLevel = E_USER_ERROR) {

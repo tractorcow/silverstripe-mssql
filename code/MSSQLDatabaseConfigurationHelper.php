@@ -1,4 +1,5 @@
 <?php
+
 /**
  * This is a helper class for the SS installer.
  * 
@@ -7,7 +8,42 @@
  * 
  * @package mssql
  */
-class MSSQLDatabaseConfigurationHelper implements DatabaseConfigurationHelper {
+class MSSQLDatabaseConfigurationHelper extends DatabaseConfigurationHelper {
+	
+	protected function isAzure($databaseConfig) {
+		return $databaseConfig['type'] === 'MSSQLAzureDatabase';
+	}
+	
+	/**
+	 * Generates a basic DBConnector from a parameter list.
+	 * Roughly implements both MSSQLDatabase with built in connectors.yml info
+	 * 
+	 * @param array $databaseConfig
+	 * @return DBConnector
+	 */
+	public function makeConnection($databaseConfig) {
+		$azure = false;
+		switch($databaseConfig['type']) {
+			case 'MSSQLPDODatabase':
+				$connector = new PDOConnector();
+				break;
+			case 'MSSQLDatabase':
+				$connector = new SQLServerConnector();
+				break;
+			case 'MSSQLAzureDatabase':
+				$connector = new SQLServerConnector();
+				$databaseConfig['multipleactiveresultsets'] = 0;
+				$azure = true;
+				break;
+			default:
+				return null;
+		}
+		
+		// Connect
+		$databaseConfig['driver'] = 'sqlsrv';
+		@$connector->connect($databaseConfig, $azure);
+		return $connector;
+	}
 
 	/**
 	 * Ensure that the database function for connectivity is available.
@@ -17,109 +53,15 @@ class MSSQLDatabaseConfigurationHelper implements DatabaseConfigurationHelper {
 	 * @return boolean
 	 */
 	public function requireDatabaseFunctions($databaseConfig) {
-		return (function_exists('mssql_connect') || function_exists('sqlsrv_connect')) ? true : false;
-	}
-
-	/**
-	 * Ensure that the database server exists.
-	 * @param array $databaseConfig Associative array of db configuration, e.g. "server", "username" etc
-	 * @return array Result - e.g. array('success' => true, 'error' => 'details of error')
-	 */
-	public function requireDatabaseServer($databaseConfig) {
-		$success = false;
-		$error = '';
-		
-		if(function_exists('mssql_connect')) {
-			$conn = @mssql_connect($databaseConfig['server'], $databaseConfig['username'], $databaseConfig['password'], true);
-		} else {
-			$conn = @sqlsrv_connect($databaseConfig['server'], array(
-				'UID' => $databaseConfig['username'],
-				'PWD' => $databaseConfig['password']
-			));
-			
-			$errors = sqlsrv_errors();
-			if($errors) {
-				$error .= "\n";
-				foreach($errors as $detail) {
-					$error .= "\n" . @$detail['message'] . "\n";
-				}
-			}
+		switch($databaseConfig['type']) {
+			case 'MSSQLPDODatabase':
+				return class_exists('PDO') && in_array('sqlsrv', PDO::getAvailableDrivers());
+			case 'MSSQLDatabase':
+			case 'MSSQLAzureDatabase':
+				return function_exists('sqlsrv_connect');
+			default:
+				return false;
 		}
-		
-		if($conn) {
-			$success = true;
-		} else {
-			$success = false;
-			if(!$error) $error = 'SQL Server requires a valid username and password to determine if the server exists.';
-		}
-		
-		return array(
-			'success' => $success,
-			'error' => $error
-		);
-	}
-
-	/**
-	 * Ensure a database connection is possible using credentials provided.
-	 * @param array $databaseConfig Associative array of db configuration, e.g. "server", "username" etc
-	 * @return array Result - e.g. array('success' => true, 'error' => 'details of error')
-	 */
-	public function requireDatabaseConnection($databaseConfig) {
-		$success = false;
-		$error = '';
-
-		if(function_exists('mssql_connect')) {
-			$conn = @mssql_connect($databaseConfig['server'], $databaseConfig['username'], $databaseConfig['password'], true);
-		} else {
-			$conn = @sqlsrv_connect($databaseConfig['server'], array(
-				'UID' => $databaseConfig['username'],
-				'PWD' => $databaseConfig['password']
-			));
-			
-			$errors = sqlsrv_errors();
-			if($errors) {
-				$error .= "\n";
-				foreach($errors as $detail) {
-					$error .= "\n" . @$detail['message'] . "\n";
-				}
-			}
-		}
-		
-		if($conn) {
-			$success = true;
-		} else {
-			$success = false;
-		}
-		
-		return array(
-			'success' => $success,
-			'connection' => $conn,
-			'error' => $error
-		);
-	}
-
-	public function getDatabaseVersion($databaseConfig) {
-		$version = 0;
-
-		// Get the version using SERVERPROPERTY() function
-		if(function_exists('mssql_connect')) {
-			$conn = @mssql_connect($databaseConfig['server'], $databaseConfig['username'], $databaseConfig['password'], true);
-			$result = @mssql_query("SELECT CONVERT(char(15), SERVERPROPERTY('ProductVersion'))", $conn);
-			$row = @mssql_fetch_array($result);
-		} else {
-			$conn = @sqlsrv_connect($databaseConfig['server'], array(
-				'UID' => $databaseConfig['username'],
-				'PWD' => $databaseConfig['password']
-			));
-			$result = @sqlsrv_query($conn, "SELECT CONVERT(char(15), SERVERPROPERTY('ProductVersion'))");
-			$row = @sqlsrv_fetch_array($result);
-		}
-
-		if($row && isset($row[0])) {
-			$version = trim($row[0]);
-		}
-
-		return $version;
 	}
 
 	/**
@@ -161,25 +103,22 @@ class MSSQLDatabaseConfigurationHelper implements DatabaseConfigurationHelper {
 
 		$check = $this->requireDatabaseConnection($databaseConfig);
 		$conn = $check['connection'];
-
-		if(function_exists('mssql_select_db')) {
-			$exists = @mssql_select_db($databaseConfig['database'], $conn);
-		} else {
-			$exists = @sqlsrv_query($conn, "USE \"$databaseConfig[database]\"");
-		}
-
-		if($exists) {
+		
+		if(!$conn || !$check['success']) {
+			// No success
+		} elseif($databaseConfig['type'] == 'MSSQLAzureDatabase') {
+			// Don't bother with DB selection for azure, as it's not supported
 			$success = true;
 			$alreadyExists = true;
 		} else {
-			if(function_exists('mssql_query') && mssql_query("CREATE DATABASE testing123", $conn)) {
-				mssql_query("DROP DATABASE testing123", $conn);
+			// does this database exist already?
+			$list = $conn->query('SELECT NAME FROM sys.sysdatabases')->column();
+			if(in_array($databaseConfig['database'], $list)) {
 				$success = true;
+				$alreadyExists = true;
+			} else{
 				$alreadyExists = false;
-			} elseif(function_exists('sqlsrv_query') && @sqlsrv_query($conn, "CREATE DATABASE testing123")) {
-				sqlsrv_query($conn, "DROP DATABASE testing123");
-				$success = true;
-				$alreadyExists = false;
+				$success = $conn->query("select COUNT(*) from sys.fn_my_permissions('','') where permission_name like 'CREATE ANY DATABASE';")->value();
 			}
 		}
 
@@ -188,5 +127,33 @@ class MSSQLDatabaseConfigurationHelper implements DatabaseConfigurationHelper {
 			'alreadyExists' => $alreadyExists
 		);
 	}
-
+	
+	/**
+	 * Ensure we have permissions to alter tables.
+	 * 
+	 * @param array $databaseConfig Associative array of db configuration, e.g. "server", "username" etc
+	 * @return array Result - e.g. array('okay' => true, 'applies' => true), where applies is whether
+	 * the test is relevant for the database
+	 */
+	public function requireDatabaseAlterPermissions($databaseConfig) {
+		
+		$check = $this->requireDatabaseConnection($databaseConfig);
+		$conn = $check['connection'];
+		
+		// Check connection
+		if(!$conn || !$check['success']) {
+			$success = false;
+		} else {
+			if(!$this->isAzure($databaseConfig)) {
+				// Make sure to select the current database when checking permission against this database
+				$conn->selectDatabase($databaseConfig['database']);
+			}
+			$success = $conn->query("select COUNT(*) from sys.fn_my_permissions(NULL,'DATABASE') WHERE permission_name like 'create table';")->value();
+		}
+		
+		return array(
+			'success' => $success,
+			'applies' => true
+		);
+	}
 }
